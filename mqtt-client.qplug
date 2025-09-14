@@ -1,0 +1,2237 @@
+-- TO-DO's
+-- Parse and create properties
+-- Auth Packet
+-- v3.1.1
+-- Encryption
+-- Process pending packets on connect
+
+PluginInfo = {
+	-- Use a tilde (~) to seperate the name into a folder
+	  Name = "MQTT Client",
+	-- Use semantic versioning
+	  Version = "0.1.0",
+	-- Use a GUID for the Id (Note: Avoid changing the Id for a plugin once it is set)
+	  Id = "5b760ec4-ff9e-4c61-baf7-1595d372ee1e",
+	-- The square brackets allow for a multi-line string
+	  Description = [[An MQTT Client]],
+	  Author = "Kyle McNicoll",
+	  ShowDebug = true
+}
+
+------------------------------- Global Variables ------------------------------
+COLORS = { 
+	["OK"] = "#00FF00",
+	[0] = "#00FF00",
+	["COMPROMISED"] = "orange",
+	[1] = "orange",
+	["FAULT"] = "red",
+	[2] = "red",
+	["NOT_PRESENT"] = "gray",
+	[3] = "gray",
+	["MISSING"] = "darkred",
+	[4] = "darkred",
+	["INITIALIZING"] = "blue",
+	[5] = "blue",
+	["GREEN"] = "#00ff00",
+	["RED"] = "#ff0000",
+	["ORANGE"] = "#ffa500",
+	["GRAY"] = "#7c7c7c",
+	["DARK_GREEN"] = "#007C00",
+}
+
+STATUS_VALUES = {
+	["OK"] = 0,
+	["COMPROMISED"] = 1,
+	["FAULT"] = 2,
+	["NOT_PRESENT"] = 3,
+	["MISSING"] = 4,
+	["INITIALIZING"] = 5,
+}
+
+PacketTypes = {
+	CONNECT = 1,
+	CONNACK = 2,
+	PUBLISH = 3,
+	PUBACK = 4,
+	PUBREC = 5,
+	PUBREL = 6,
+	PUBCOMP = 7,
+	SUBSCRIBE = 8,
+	SUBACK = 9,
+	UNSUBSCRIBE = 10,
+	UNSUBACK = 11,
+	PINGREQ = 12,
+	PINGRESP = 13,
+	DISCONNECT = 14,
+	AUTH = 15  
+}
+
+ReasonCodes = {
+	SUCCESS = 0,  -- CONNACK, PUBACK, PUBREC, PUBREL, PUBCOMP, UNSUBACK, AUTH
+	NORMAL_DISCONNECT = 0,  -- DISCONNECT
+	GRANTED_QOS_0 = 0,  -- SUBACK
+	GRANTED_QOS_1 = 1,  -- SUBACK
+	GRANTED_QOS_2 = 2,  -- SUBACK
+
+	DISCONNECT_WITH_WILL = 4,  -- DISCONNECT
+
+	NO_MATCHING_SUBSCRIBERS = 16,  -- PUBACK, PUBREC
+	NO_SUBSCRIPTION_EXISTED = 17,  -- UNSUBACK
+
+	CONTINUE_AUTHENTICATION = 24,  -- AUTH
+	REUTHENTICATE = 25,  -- AUTH
+
+	UNSPECIFIED_ERROR = 128,  -- CONNACK, PUBACK, PUBREC, SUBACK, UNSUBACK, DISCONNECT
+	MALFORMED_PACKET = 129,  -- CONNACK, DISCONNECT
+	PROTOCOL_ERROR = 130,  -- CONNACK, DISCONNECT
+	IMPLEMENTATION_SPECIFIC_ERROR = 131,  -- CONNACK, PUBACK, PUBREC, SUBACK, UNSUBACK, DISCONNECT
+	UNSUPPORTED_PROTOCOL_VERSION = 132,  -- CONNACK
+	CLIENT_IDENTIFIER_NOT_VALID = 133,  -- CONNACK
+	BAD_USER_NAME_OR_PASSWORD = 134,  -- CONNACK
+	NOT_AUTHORIZED = 135,  -- CONNACK, PUBACK, PUBREC, SUBACK, UNSUBACK, DISCONNECT
+	SERVER_UNAVAILABLE = 136,  -- CONNACK
+	SERVER_BUSY = 137,  -- CONNACK, DISCONNECT
+	BANNED = 138,  -- CONNACK
+	SERVER_SHUTTING_DOWN = 139,  -- DISCONNECT
+	BAD_AUTHENTICATION_METHOD = 140,  -- CONNACK, DISCONNECT
+	KEEP_ALIVE_TIMEOUT = 141,  -- DISCONNECT
+	SESSION_TAKEN_OVER = 142,  -- DISCONNECT
+	TOPIC_FILTER_INVALID = 143,  -- SUBACK, UNSUBACK, DISCONNECT
+	TOPIC_NAME_INVALID = 144,  -- CONNACK, PUBACK, PUBREC, DISCONNECT
+	PACKET_IDENTIFIER_IN_USE = 145,  -- PUBACK, PUBREC, SUBACK, UNSUBACK
+	PACKET_IDENTIFIER_NOT_FOUND = 146,  -- PUBREL, PUBCOMP
+	RECEIVE_MAXIMUM_EXCEEDED = 147,  -- DISCONNECT
+	TOPIC_ALIAS_INVALID = 148,  -- DISCONNECT
+	PACKET_TOO_LARGE = 149,  -- CONNACK, DISCONNECT
+	MESSAGE_RATE_TOO_HIGH = 150,  -- DISCONNECT
+	QUOTA_EXCEEDED = 151,  -- CONNACK, PUBACK, PUBREC, SUBACK, DISCONNECT
+	ADMINISTRATIVE_ACTION = 152,  -- DISCONNECT
+	PAYLOAD_FORMAT_INVALID = 153,  -- CONNACK, PUBACK, PUBREC, DISCONNECT
+	RETAIN_NOT_SUPPORTED = 154,  -- CONNACK, DISCONNECT
+	QOS_NOT_SUPPORTED = 155,  -- CONNACK, DISCONNECT
+	USE_ANOTHER_SERVER = 156,  -- CONNACK, DISCONNECT
+	SERVER_MOVED = 157,  -- CONNACK, DISCONNECT
+	SHARED_SUBSCRIPTIONS_NOT_SUPPORTED = 158,  -- SUBACK, DISCONNECT
+	CONNECTION_RATE_EXCEEDED = 159,  -- CONNACK, DISCONNECT
+	MAXIMUM_CONNECT_TIME = 160,  -- DISCONNECT
+	SUBSCRIPTION_IDENTIFIERS_NOT_SUPPORTED = 161,  -- SUBACK, DISCONNECT
+	WILDCARD_SUBSCRIPTIONS_NOT_SUPPORTED = 162  -- SUBACK, DISCONNECT
+}
+
+PropertyIdentifiers = {                   -- DATA TYPE         Packet
+	PAYLOAD_FORMAT_INDICATOR = 1,           -- Byte              PUBLISH, Will Properties
+	MESSAGE_EXPIRY_INTERVAL = 2,            -- 4-Byte            PUBLISH, Will Properties
+	CONTENT_TYPE = 3,                       -- String            PUBLISH, Will Properties
+
+	RESPONSE_TOPIC = 8,                     -- String            PUBLISH, Will Properties
+	CORRELATION_DATA = 9,                   -- Binary Data       PUBLISH, Will Properties
+
+	SUBSCRIPTION_IDENTIFIER = 11,           -- Variable Byte     PUBLISH, SUBSCRIBE
+
+	SESSION_EXPIRY_INTERVAL = 17,           -- 4-Byte            CONNECT, CONNACK, DISCONNECT
+	ASSIGNED_CLIENT_IDENTIFIER = 18,        -- String            CONNACK
+	SERVER_KEEP_ALIVE = 19,                 -- 2-Byte            CONNACK
+
+	AUTHENTICATION_METHOD = 21,             -- String            CONNECT, CONNACK, AUTH
+	AUTHENTICATION_DATA = 22,               -- Binary Data       CONNECT, CONNACK, AUTH
+	REQUEST_PROBLEM_INFORMATION = 23,       -- Byte              CONNECT
+	WILL_DELAY_INTERVAL = 24,               -- 4-Byte            Will Properties
+	REQUEST_RESPONSE_INFORMATION = 25,      -- Byte              CONNECT
+	RESPONSE_INFORMATION = 26,              -- String            CONNACK
+
+	SERVER_REFERENCE = 28,                  -- String            CONNACK, DISCONNECT
+
+	REASON_STRING = 31,                     -- String            CONNACK, PUBACK, PUBREC, PUBREL, PUBCOMP, SUBACK, UNSUBACK, DISCONNECT, AUTH
+
+	RECEIVE_MAXIMUM = 33,                   -- 2-Byte            CONNECT, CONNACK
+	TOPIC_ALIAS_MAXIMUM = 34,               -- 2-Byte            CONNECT, CONNACK
+	TOPIC_ALIAS = 35,                       -- 2-Byte            PUBLISH
+	MAXIMUM_QOS = 36,                       -- Byte              CONNACK
+	RETAIN_AVAILABLE = 37,                  -- Byte              CONNACK
+	USER_PROPERTY = 38,                     -- String Pair       CONNECT, CONNACK, PUBLISH, Will Properties, PUBACK, PUBREC, PUBREL, PUBCOMP, SUBSCRIBE, SUBACK, UNSUBSCRIBE, UNSUBACK, DISCONNECT, AUTH
+	MAXIMUM_PACKET_SIZE = 39,               -- 4-Byte            CONNECT, CONNACK
+	WILDCARD_SUBSCRIPTION_AVAILABLE = 40,   -- Byte              CONNACK
+	SUBSCRIPTION_IDENTIFIER_AVAILABLE = 41, -- Byte              CONNACK
+	SHARED_SUBSCRIPTION_AVAILABLE = 42      -- Byte              CONNACK
+}
+
+ENABLE_CODE_PIN = true
+
+--------------------------------- Properties ----------------------------------
+function GetProperties()
+	  local props = {
+		{
+			Name = "Broker Address",
+			Type = "string",
+			Value = "test.mosquitto.org"
+		},
+		{
+			Name = "Port",
+			Type = "integer",
+			Min = 1,
+			Max = 65535,
+			Value = 1883
+		},
+	    {
+			Name = "Authentication Type",
+			Type = "enum",
+			Choices = { "None", "Password Only", "Username / Password" },
+			Value = "Username / Password"
+		},
+	    {
+			Name = "MQTT Version",
+			Type = "enum",
+			Choices = { "5.0" },
+			Value = "5.0"
+		},
+	    {
+			Name = "Transport Type",
+			Type = "enum",
+			Choices = { "TCP (Insecure)", "TCP w/ TLS" },
+			Value = "TCP (Insecure)"
+		},
+		{
+			Name = "Clean Start",
+			Type = "boolean",
+			Value = true,
+			Comment = "Clear session information when reconnecting"
+		},
+		{
+			Name = "Keep Alive Interval",
+			Type = "integer",
+			Min = 1,
+			Max = 300,
+			Value = 30
+		},
+		{
+			Name = "Client Identifier",
+			Type = "string",
+			Value = "qsys-core"
+		},
+		{
+			Name = "Inputs",
+			Type = "integer",
+			Min = 0,
+			Max = 64,
+			Value = 1,
+            Header = "Inputs"
+		},
+		{
+			Name = "Outputs",
+			Type = "integer",
+			Min = 0,
+			Max = 64,
+			Value = 1,
+            Header = "Outputs"
+		}
+	  }
+
+	  return props
+end
+
+--Modify visibility based on other properties
+--[[
+	  Example: 
+	  if props["propertyName"].Value == "DHCP" then
+	      props["someStaticIPRelatedProperty"].IsHidden = true
+	  else
+	      props["someStaticIPRelatedProperty"].IsHidden = false
+]]--
+function RectifyProperties(props)
+	  return props
+end
+
+------------------------- Plugin Block Name and Color -------------------------
+function GetPrettyName(props)
+	  return PluginInfo["Name"] .. " v" .. PluginInfo["Version"]
+end
+
+function GetColor(props)
+	return ConvertColor("#cccccc")
+end
+
+---------------------------------- Controls -----------------------------------
+function GetControls(props)
+	AUTHENTICATION_TYPE = props["Authentication Type"].Value
+	INPUT_COUNT = props["Inputs"].Value
+	OUTPUT_COUNT = props["Outputs"].Value
+
+	local ctls = {
+		{
+			Name = "Status",
+			ControlType = "Indicator",
+			IndicatorType = "Status",
+			UserPin = true,
+			PinStyle = "Output"
+		},
+		{
+			Name = "BrokerAddress",
+			ControlType = "Indicator",
+			IndicatorType = "Text",
+			UserPin = false
+		},
+		{
+			Name = "Port",
+			ControlType = "Indicator",
+			IndicatorType = "Text",
+			UserPin = false
+		},
+		{
+			Name = "TransportType",
+			ControlType = "Indicator",
+			IndicatorType = "Text",
+			UserPin = false
+		},
+		{
+			Name = "ClientIdentifier",
+			ControlType = "Indicator",
+			IndicatorType = "Text",
+			UserPin = false
+		},
+		{
+			Name = "CleanStart",
+			ControlType = "Indicator",
+			IndicatorType = "Text",
+			UserPin = false
+		},
+		{
+			Name = "KeepAlive",
+			ControlType = "Indicator",
+			IndicatorType = "Text",
+			UserPin = false
+		},
+		{
+			Name = "Version",
+			ControlType = "Indicator",
+			IndicatorType = "Text",
+			UserPin = false
+		},
+		{
+			Name = "AuthenticationType",
+			ControlType = "Indicator",
+			IndicatorType = "Text",
+			UserPin = false
+		},
+		{
+			Name = "WillTopic",
+			ControlType = "Text",
+			UserPin = true,
+			PinStyle = "Input"
+		},
+		{
+			Name = "WillPayload",
+			ControlType = "Text",
+			UserPin = true,
+			PinStyle = "Input"
+		},
+		{
+            Name = "WillQOS",
+            ControlType = "Knob",
+            ControlUnit = "Integer",
+            Min = 1,
+            Max = 3,
+			UserPin = true,
+			PinStyle = "Input"
+        },
+		{
+			Name = "WillRetain",
+			ControlType = "Button",
+			ButtonType = "Toggle",
+			UserPin = true,
+			PinStyle = "Input"
+		},
+	}
+
+	if AUTHENTICATION_TYPE == "Username / Password" then
+		table.insert(ctls, {
+				Name = "Username",
+				Count = 1,
+				ControlType = "Text",
+				UserPin = false
+			}
+		)
+		table.insert(ctls, {
+				Name = "Password",
+				Count = 1,
+				ControlType = "Text",
+				UserPin = false
+			}
+		)
+	elseif AUTHENTICATION_TYPE == "Password Only" then
+		table.insert(ctls, {
+				Name = "Password",
+				Count = 1,
+				ControlType = "Text",
+				UserPin = false
+			}
+		)
+	end
+
+	for i = 1, INPUT_COUNT do
+		table.insert(ctls, {
+			Name = "InputTopic" .. i,
+			ControlType = "Text",
+			UserPin = true,
+			PinStyle = "Input"
+		})
+		table.insert(ctls, {
+			Name = "InputPayload" .. i,
+			ControlType = "Text",
+			UserPin = false,
+			PinStyle = "Input"
+		})
+		table.insert(ctls, {
+			Name = "InputQOS" .. i,
+            ControlType = "Knob",
+            ControlUnit = "Integer",
+            Min = 1,
+            Max = 3,
+			UserPin = true,
+			PinStyle = "Input"
+		})
+		table.insert(ctls, {
+			Name = "InputRetain" .. i,
+			ControlType = "Button",
+			ButtonType = "Toggle",
+			UserPin = true,
+			PinStyle = "Input"
+		})
+	end
+
+	for i = 1, OUTPUT_COUNT do
+		table.insert(ctls, {
+			Name = "OutputTopic" .. i,
+			ControlType = "Text",
+			UserPin = true,
+			PinStyle = "Input"
+		})
+		table.insert(ctls, {
+			Name = "OutputPayload" .. i,
+			ControlType = "Indicator",
+			IndicatorType = "Text",
+			UserPin = false,
+			PinStyle = "Output"
+		})
+		table.insert(ctls, {
+			Name = "OutputQOS" .. i,
+			ControlType = "Indicator",
+			IndicatorType = "Text",
+			UserPin = true,
+			PinStyle = "Output"
+		})
+		table.insert(ctls, {
+			Name = "OutputRetain" .. i,
+			ControlType = "Indicator",
+			IndicatorType = "LED",
+			UserPin = true,
+			PinStyle = "Output"
+		})
+	end
+
+	if ENABLE_CODE_PIN then
+		table.insert(ctls, {
+	          Name = "code",
+	          ControlType = "Text",
+	          Count = 1,
+	          PinStyle = "Input",
+	          UserPin = true
+	      })
+	end
+
+	  return ctls
+end
+
+------------------------------- Control Layout --------------------------------
+function GetControlLayout(props)
+	STATUS_BOX_Y_POS = 0
+	AUTHENTICATION_BOX_Y_POS = STATUS_BOX_Y_POS + 116
+	WILL_MESSAGE_BOX_Y_POS = AUTHENTICATION_BOX_Y_POS
+	if props["Authentication Type"].Value == "Username / Password" or props["Authentication Type"].Value == "Password Only" then
+		AUTHENTICATION_BOX_HEIGHT = 52
+		WILL_MESSAGE_BOX_Y_POS = WILL_MESSAGE_BOX_Y_POS + 56
+	end
+	INPUT_BOX_Y_POS = WILL_MESSAGE_BOX_Y_POS + 56
+	OUTPUT_BOX_Y_POS = INPUT_BOX_Y_POS
+	INPUT_COUNT = props["Inputs"].Value
+	if INPUT_COUNT > 0 then
+		OUTPUT_BOX_Y_POS = OUTPUT_BOX_Y_POS + 36 + (20 * INPUT_COUNT)
+	end
+	OUTPUT_COUNT = props["Outputs"].Value
+	AUTHENTICATION_TYPE = props["Authentication Type"].Value
+
+	-- Uncomment the next line if you are using multiple pages
+	--local currentPage = props["page_index"].Value
+
+	  local layout = { }
+
+	layout["Status"] = 
+	{
+		PrettyName = "Status",
+		Position = {100, STATUS_BOX_Y_POS + 8},
+		Size = {216, 32},
+		Style = "Text",
+		TextFontSize = 10,
+		WordWrap = true,
+	}
+
+	layout["BrokerAddress"] = 
+	{
+		PrettyName = "Broker Address",
+		Position = {4, STATUS_BOX_Y_POS + 56},
+		Size = {120, 16},
+		Style = "Text",
+		TextFontSize = 10,
+		WordWrap = true,
+	}
+
+	layout["Port"] = 
+	{
+		PrettyName = "Port",
+		Position = {128, STATUS_BOX_Y_POS + 56},
+		Size = {64, 16},
+		Style = "Text",
+		TextFontSize = 10,
+		WordWrap = true,
+	}
+
+	layout["TransportType"] = 
+	{
+		PrettyName = "Transport Type",
+		Position = {196, STATUS_BOX_Y_POS + 56},
+		Size = {120, 16},
+		Style = "Text",
+		TextFontSize = 10,
+		WordWrap = true,
+	}
+
+	layout["ClientIdentifier"] = 
+	{
+		PrettyName = "Client Identifier",
+		Position = {4, STATUS_BOX_Y_POS + 88},
+		Size = {108, 16},
+		Style = "Text",
+		TextFontSize = 10,
+		WordWrap = true,
+	}
+
+	layout["CleanStart"] = 
+	{
+		PrettyName = "Clean Start",
+		Position = {116, STATUS_BOX_Y_POS + 88},
+		Size = {64, 16},
+		Style = "Text",
+		TextFontSize = 10,
+		WordWrap = true,
+	}
+
+	layout["KeepAlive"] = 
+	{
+		PrettyName = "Keep Alive",
+		Position = {184, STATUS_BOX_Y_POS + 88},
+		Size = {64, 16},
+		Style = "Text",
+		TextFontSize = 10,
+		WordWrap = true,
+	}
+
+	layout["Version"] = 
+	{
+		PrettyName = "Version",
+		Position = {252, STATUS_BOX_Y_POS + 88},
+		Size = {64, 16},
+		Style = "Text",
+		TextFontSize = 10,
+		WordWrap = true,
+	}
+
+	layout["AuthenticationType"] = 
+	{
+		PrettyName = "Authentication Type",
+		Position = {220, AUTHENTICATION_BOX_Y_POS + 8},
+		Size = {96, 16},
+		Style = "Text",
+		TextFontSize = 10,
+		WordWrap = true,
+	}
+
+	layout["WillTopic"] = 
+	{
+		PrettyName = "Will~Topic",
+		Position = {52, WILL_MESSAGE_BOX_Y_POS + 28},
+		Size = {96, 16},
+		Style = "Text",
+		TextFontSize = 10,
+		WordWrap = true,
+	}
+
+	layout["WillPayload"] = 
+	{
+		PrettyName = "Will~Value",
+		Position = {152, WILL_MESSAGE_BOX_Y_POS + 28},
+		Size = {96, 16},
+		Style = "Text",
+		TextFontSize = 10,
+		WordWrap = true,
+	}
+
+	layout["WillQOS"] = 
+	{
+		PrettyName = "Will~QOS",
+		Position = {252, WILL_MESSAGE_BOX_Y_POS + 28},
+		Size = {28, 16},
+		Style = "Text",
+		TextFontSize = 10,
+		WordWrap = true,
+	}
+
+	layout["WillRetain"] = 
+	{
+		PrettyName = "Will~Retain",
+		Position = {280, WILL_MESSAGE_BOX_Y_POS + 28},
+		Size = {36, 16},
+		Style = "Button",
+		TextFontSize = 10,
+		WordWrap = true,
+	}
+
+	if AUTHENTICATION_TYPE == "Username / Password" then
+		layout["Username"] = 
+		{
+			PrettyName = "Username",
+			Position = {62, AUTHENTICATION_BOX_Y_POS + 28},
+			Size = {96, 16},
+			Style = "Text",
+			TextFontSize = 10,
+			WordWrap = true,
+		}
+		layout["Password"] = 
+		{
+			PrettyName = "Password",
+			Position = {220, AUTHENTICATION_BOX_Y_POS + 28},
+			Size = {96, 16},
+			Style = "Text",
+			TextFontSize = 10,
+			WordWrap = true,
+		}
+	elseif AUTHENTICATION_TYPE == "Password Only" then
+		layout["Password"] = 
+		{
+			PrettyName = "Password",
+			Position = {62, AUTHENTICATION_BOX_Y_POS + 28},
+			Size = {254, 16},
+			Style = "Text",
+			TextFontSize = 10,
+			WordWrap = true,
+		}
+	end
+
+	for i = 1, INPUT_COUNT do
+		layout["InputTopic" .. i] = 
+		{
+			PrettyName = "In " .. i .. "~Topic",
+			Position = {52, INPUT_BOX_Y_POS + 8 + (20 * i)},
+			Size = {96, 16},
+			Style = "Text",
+			TextFontSize = 10,
+			WordWrap = true,
+		}
+
+		layout["InputPayload" .. i] = 
+		{
+			PrettyName = "In " .. i .. "~Value",
+			Position = {152, INPUT_BOX_Y_POS + 8 + (20 * i)},
+			Size = {96, 16},
+			Style = "Text",
+			TextFontSize = 10,
+			WordWrap = true,
+		}
+
+		layout["InputQOS" .. i] = 
+		{
+			PrettyName = "In " .. i .. "~QOS",
+			Position = {252, INPUT_BOX_Y_POS + 8 + (20 * i)},
+			Size = {28, 16},
+			Style = "Text",
+			TextFontSize = 10,
+			WordWrap = true,
+		}
+
+		layout["InputRetain" .. i] = 
+		{
+			PrettyName = "In " .. i .. "~Retain",
+			Position = {280, INPUT_BOX_Y_POS + 8 + (20 * i)},
+			Size = {36, 16},
+			Style = "Button",
+			TextFontSize = 10,
+			WordWrap = true,
+		}
+	end
+
+	for i = 1, OUTPUT_COUNT do
+		layout["OutputTopic" .. i] = 
+		{
+			PrettyName = "Out " .. i .. "~Topic",
+			Position = {52, OUTPUT_BOX_Y_POS + 8 + (20 * i)},
+			Size = {96, 16},
+			Style = "Text",
+			TextFontSize = 10,
+			WordWrap = true,
+		}
+
+		layout["OutputPayload" .. i] = 
+		{
+			PrettyName = "Out " .. i .. "~Value",
+			Position = {152, OUTPUT_BOX_Y_POS + 8 + (20 * i)},
+			Size = {96, 16},
+			Style = "Text",
+			TextFontSize = 10,
+			WordWrap = true,
+		}
+
+		layout["OutputQOS" .. i] = 
+		{
+			PrettyName = "Out " .. i .. "~QOS",
+			Position = {252, OUTPUT_BOX_Y_POS + 8 + (20 * i)},
+			Size = {28, 16},
+			Style = "Text",
+			TextFontSize = 10,
+			WordWrap = true,
+		}
+
+		layout["OutputRetain" .. i] = 
+		{
+			PrettyName = "Out " .. i .. "~Retain",
+			Position = {290, OUTPUT_BOX_Y_POS + 8 + (20 * i)},
+			Size = {16, 16},
+			Style = "LED",
+			TextFontSize = 10,
+			WordWrap = true,
+		}
+	end
+
+	if ENABLE_CODE_PIN then
+		layout["code"] = 
+		{
+			PrettyName = "Code",
+			Style = "None"
+		}
+	end
+
+	  local graphics = {
+		{
+			Type = "GroupBox",
+			Position = {0, STATUS_BOX_Y_POS},
+			Size = {320, 112},
+			Text = "Status",
+			TextSize = 12,
+			HTextAlign = "Left",
+			StrokeWidth = 1,
+			CornerRadius = 8
+		},
+		{
+			Type = "Label",
+			Position = {55, STATUS_BOX_Y_POS + 8},
+			Size = {41, 32},
+			Text = "Status",
+			TextSize = 12,
+			HTextAlign = "Right",
+			VTextAlign = "Center"
+		},
+		{
+			Type = "Label",
+			Position = {4, STATUS_BOX_Y_POS + 40},
+			Size = {120, 16},
+			Text = "Broker Address",
+			TextSize = 12,
+			HTextAlign = "Center",
+			VTextAlign = "Bottom"
+		},
+		{
+			Type = "Label",
+			Position = {128, STATUS_BOX_Y_POS + 40},
+			Size = {64, 16},
+			Text = "Port",
+			TextSize = 12,
+			HTextAlign = "Center",
+			VTextAlign = "Bottom"
+		},
+		{
+			Type = "Label",
+			Position = {196, STATUS_BOX_Y_POS + 40},
+			Size = {120, 16},
+			Text = "Transport Type",
+			TextSize = 12,
+			HTextAlign = "Center",
+			VTextAlign = "Bottom"
+		},
+		{
+			Type = "Label",
+			Position = {4, STATUS_BOX_Y_POS + 72},
+			Size = {108, 16},
+			Text = "Client Identifier",
+			TextSize = 12,
+			HTextAlign = "Center",
+			VTextAlign = "Bottom"
+		},
+		{
+			Type = "Label",
+			Position = {116, STATUS_BOX_Y_POS + 72},
+			Size = {64, 16},
+			Text = "Clean Start",
+			TextSize = 12,
+			HTextAlign = "Center",
+			VTextAlign = "Bottom"
+		},
+		{
+			Type = "Label",
+			Position = {184, STATUS_BOX_Y_POS + 72},
+			Size = {64, 16},
+			Text = "Keep Alive",
+			TextSize = 12,
+			HTextAlign = "Center",
+			VTextAlign = "Bottom"
+		},
+		{
+			Type = "Label",
+			Position = {252, STATUS_BOX_Y_POS + 72},
+			Size = {64, 16},
+			Text = "Version",
+			TextSize = 12,
+			HTextAlign = "Center",
+			VTextAlign = "Bottom"
+		},
+		{
+			Type = "GroupBox",
+			Position = {0, AUTHENTICATION_BOX_Y_POS},
+			Size = {320, AUTHENTICATION_BOX_HEIGHT},
+			Text = "Authentication",
+			TextSize = 12,
+			HTextAlign = "Left",
+			StrokeWidth = 1,
+			CornerRadius = 8
+		},
+		{
+			Type = "Label",
+			Position = {152, AUTHENTICATION_BOX_Y_POS + 8},
+			Size = {64, 16},
+			Text = "Type",
+			TextSize = 12,
+			HTextAlign = "Right",
+			VTextAlign = "Center"
+		},
+		{
+			Type = "GroupBox",
+			Position = {0, WILL_MESSAGE_BOX_Y_POS},
+			Size = {320, 52},
+			Text = "Will",
+			TextSize = 12,
+			HTextAlign = "Left",
+			StrokeWidth = 1,
+			CornerRadius = 8
+		},
+		{
+			Type = "Label",
+			Position = {52, WILL_MESSAGE_BOX_Y_POS + 8},
+			Size = {96, 16},
+			Text = "Topic",
+			TextSize = 12,
+			HTextAlign = "Center",
+			VTextAlign = "Bottom"
+		},
+		{
+			Type = "Label",
+			Position = {152, WILL_MESSAGE_BOX_Y_POS + 8},
+			Size = {96, 16},
+			Text = "Payload",
+			TextSize = 12,
+			HTextAlign = "Center",
+			VTextAlign = "Bottom"
+		},
+		{
+			Type = "Label",
+			Position = {252, WILL_MESSAGE_BOX_Y_POS + 8},
+			Size = {28, 16},
+			Text = "QOS",
+			TextSize = 12,
+			HTextAlign = "Center",
+			VTextAlign = "Bottom"
+		},
+		{
+			Type = "Label",
+			Position = {280, WILL_MESSAGE_BOX_Y_POS + 8},
+			Size = {36, 16},
+			Text = "Retain",
+			TextSize = 12,
+			HTextAlign = "Center",
+			VTextAlign = "Bottom"
+		},
+	}
+
+	if AUTHENTICATION_TYPE == "Username / Password" then
+		table.insert(graphics,
+			{
+				Type = "Label",
+				Position = {4, AUTHENTICATION_BOX_Y_POS + 28},
+				Size = {54, 16},
+				Text = "Username",
+				TextSize = 12,
+				HTextAlign = "Right",
+				VTextAlign = "Center"
+			}
+		)
+		table.insert(graphics,
+			{
+				Type = "Label",
+				Position = {162, AUTHENTICATION_BOX_Y_POS + 28},
+				Size = {54, 16},
+				Text = "Password",
+				TextSize = 12,
+				HTextAlign = "Right",
+				VTextAlign = "Center"
+			}
+		)
+	elseif AUTHENTICATION_TYPE == "Password Only" then
+		table.insert(graphics,
+			{
+				Type = "Label",
+				Position = {4, AUTHENTICATION_BOX_Y_POS + 28},
+				Size = {54, 16},
+				Text = "Password",
+				TextSize = 12,
+				HTextAlign = "Right",
+				VTextAlign = "Center"
+			}
+		)
+	end
+
+	if INPUT_COUNT > 0 then
+		table.insert(graphics,
+			{
+				Type = "GroupBox",
+				Position = {0, INPUT_BOX_Y_POS},
+				Size = {320, 32 + (20 * INPUT_COUNT)},
+				Text = "Inputs",
+				TextSize = 12,
+				HTextAlign = "Left",
+				IsBold = false,
+				StrokeWidth = 1,
+				CornerRadius = 8
+			}
+		)
+		table.insert(graphics, 
+			{
+				Type = "Label",
+				Position = {52, INPUT_BOX_Y_POS + 8},
+				Size = {96, 16},
+				Text = "Topic",
+				TextSize = 12,
+				HTextAlign = "Center",
+				VTextAlign = "Bottom"
+			}
+		)
+		table.insert(graphics, 
+			{
+				Type = "Label",
+				Position = {152, INPUT_BOX_Y_POS + 8},
+				Size = {96, 16},
+				Text = "Payload",
+				TextSize = 12,
+				HTextAlign = "Center",
+				VTextAlign = "Bottom"
+			}
+		)
+		table.insert(graphics, 
+			{
+				Type = "Label",
+				Position = {252, INPUT_BOX_Y_POS + 8},
+				Size = {28, 16},
+				Text = "QOS",
+				TextSize = 12,
+				HTextAlign = "Center",
+				VTextAlign = "Bottom"
+			}
+		)
+		table.insert(graphics, 
+			{
+				Type = "Label",
+				Position = {280, INPUT_BOX_Y_POS + 8},
+				Size = {36, 16},
+				Text = "Retain",
+				TextSize = 12,
+				HTextAlign = "Center",
+				VTextAlign = "Bottom"
+			}
+		)
+	end
+
+	for i = 1, INPUT_COUNT do
+		table.insert(graphics, 
+			{
+				Type = "Label",
+				Position = {4, INPUT_BOX_Y_POS + 8 + (i * 20)},
+				Size = {48, 16},
+				Text = "Value " .. i,
+				TextSize = 12,
+				HTextAlign = "Right",
+				VTextAlign = "Center"
+			}
+		)
+	end
+
+	for i = 1, OUTPUT_COUNT do
+		table.insert(graphics, 
+			{
+				Type = "Label",
+				Position = {4, OUTPUT_BOX_Y_POS + 8 + (i * 20)},
+				Size = {48, 16},
+				Text = "Value " .. i,
+				TextSize = 12,
+				HTextAlign = "Right",
+				VTextAlign = "Center"
+			}
+		)
+	end
+
+	if OUTPUT_COUNT > 0 then
+		table.insert(graphics,
+			{
+				Type = "GroupBox",
+				Position = {0, OUTPUT_BOX_Y_POS},
+				Size = {320, 32 + (20 * OUTPUT_COUNT)},
+				Text = "Outputs",
+				TextSize = 12,
+				HTextAlign = "Left",
+				IsBold = false,
+				StrokeWidth = 1,
+				CornerRadius = 8
+			}
+		)
+		table.insert(graphics, 
+			{
+				Type = "Label",
+				Position = {52, OUTPUT_BOX_Y_POS + 8},
+				Size = {96, 16},
+				Text = "Topic",
+				TextSize = 12,
+				HTextAlign = "Center",
+				VTextAlign = "Bottom"
+			}
+		)
+		table.insert(graphics, 
+			{
+				Type = "Label",
+				Position = {152, OUTPUT_BOX_Y_POS + 8},
+				Size = {96, 16},
+				Text = "Payload",
+				TextSize = 12,
+				HTextAlign = "Center",
+				VTextAlign = "Bottom"
+			}
+		)
+		table.insert(graphics, 
+			{
+				Type = "Label",
+				Position = {252, OUTPUT_BOX_Y_POS + 8},
+				Size = {28, 16},
+				Text = "QOS",
+				TextSize = 12,
+				HTextAlign = "Center",
+				VTextAlign = "Bottom"
+			}
+		)
+		table.insert(graphics, 
+			{
+				Type = "Label",
+				Position = {280, OUTPUT_BOX_Y_POS + 8},
+				Size = {36, 16},
+				Text = "Retain",
+				TextSize = 12,
+				HTextAlign = "Center",
+				VTextAlign = "Bottom"
+			}
+		)
+	end
+
+	  return layout, graphics
+end
+
+---------------------------- Other Plugin Functions ---------------------------
+
+function GetPins(props)
+	local pins = { }
+
+	return pins
+end
+--[[ Uncomment if you need multiple pages (tabs)
+--Current page number can be retrieved in other functions as props["page_index"].Value
+function GetPages(props)
+	  local pages = {}
+
+	  return pages
+end
+]]
+function GetComponents(props)
+	local components = {
+		{
+			Name = "_secret_storage",
+			Type = "custom_controls",
+			Properties = {
+				["type_1"] = 13,
+				["count_1"] = 1,
+				["metadata_1"] = true,
+			}
+		}
+	}
+
+	return components
+end
+
+function GetWiring(props)
+	local wiring = { }
+
+	return wiring
+end
+
+------------------------------ Local Functions --------------------------------
+function HEXtoDEC(hex)
+	hex = string.upper(hex)
+	local b1 = string.byte(string.sub(hex, 1, 1))
+	local b2 = string.byte(string.sub(hex, 2, 2))
+
+	return( (b1<=57 and b1-48 or b1-55)*16 + (b2<=57 and b2-48 or b2-55) )
+end
+
+function ConvertColor(c)
+	local t = {}
+	t[1] = HEXtoDEC(string.sub(c,2,3))
+	t[2] = HEXtoDEC(string.sub(c,4,5))
+	t[3] = HEXtoDEC(string.sub(c,6,7))
+	return t
+end
+
+function LogDebug(message)
+  print(message)
+end
+
+function LogInfo(message)
+  Log.Message(message)
+  print(message)
+end
+
+function LogError(message)
+  Log.Error(message)
+  print("Error: " .. message)
+end
+
+function LogCritical(message)
+  Log.Error(message)
+  error(message)
+end
+
+function CreatePacketIdentifier()
+  if #PendingPackets > 65000 then
+    LogCritical("MQTT PendingPacket List has grown too big!")
+  end
+  while true do
+    LastPacketIdentifier = LastPacketIdentifier + 1
+    if LastPacketIdentifier > 65535 then
+      LastPacketIdentifier = 1
+    end
+    if PendingPackets["LastPacketIdentifier"] == nil then 
+      LogDebug("Using Packet Identifier: " .. LastPacketIdentifier)
+      return LastPacketIdentifier
+    end
+  end
+end
+
+function BoolToInt(bool)
+  if bool == true then return 1 else return 0 end
+end
+
+function IntToBool(val)
+  if val == 0 then return false else return true end
+end
+
+function EncodeMQTTString(inputString)
+  local length = #inputString
+  local output = bitstring.pack("16:int, all:bin", length, inputString)
+  return output
+end
+
+function EncodeVariableByteInteger(inputValue)
+  local encodedBytes = ""
+  repeat
+    local byte = inputValue % 128
+    inputValue = math.floor(inputValue / 128)
+    if inputValue > 0 then
+      byte = byte | 128
+    end 
+    encodedBytes = encodedBytes .. string.char(byte)
+  until inputValue <= 0
+  return encodedBytes
+end
+
+function DecodeVariableByteInteger(inputValue, startIndex)
+  startIndex = startIndex or 1
+  local value = 0
+  local byte = 128
+  local byteCount = 0
+  repeat
+    byte = string.byte(inputValue, startIndex + byteCount)
+    value = value + ((byte & 127) * 128 ^ byteCount)
+    byteCount = byteCount + 1
+    if byteCount > 4 then
+      LogError("Malformed Variable Byte Integer")
+    end
+  until byte & 128 == 0
+  return value, byteCount
+end
+
+function EncodeBinaryData(inputValue)
+  local length = #inputValue
+  local output = bitstring.pack("16:int, all:bin", length, inputValue)
+  return output
+end
+
+function EncodeStringPair(inputKey, inputValue)
+  local output = bitstring.pack("all:bin, all:bin", EncodeMQTTString(inputKey), EncodeMQTTString(inputValue))
+  return output
+end
+
+function DecodeFixedLengthInteger(inputString, startIndex, byteCount)
+  startIndex = startIndex or 1
+  local bytes = {}
+  for i = startIndex, startIndex + byteCount - 1 do
+    table.insert(bytes, string.byte(inputString, i))
+  end
+  local value = 0
+  for _, byte in ipairs(bytes) do
+    value = value << 8
+    value = value | byte
+  end
+  return value
+end
+
+function DecodeMQTTString(inputString, startIndex)
+  local length = DecodeFixedLengthInteger(inputString, startIndex, 2)
+  local outputString = string.sub(inputString, 3, 3 + length - 1)
+  return outputString
+end
+
+function EncodeSubscriptionInformation(topic, maxQOS, noLocal, retainAsPublished, retainHandling)
+  maxQOS = maxQOS or 2  -- Max QOS that messages should be sent with
+  noLocal = noLocal or 1  -- Whether (0) or not (1) to allow messages with this client's ID to be sent to this client (send a message to ourself)
+  retainAsPublished = retainAsPublished or 0  -- 1 = Keep the retain flag value the message was sent with. 0 = Only set the retain flag for the message sent when the subscription is established (if a retained message is available)
+  retainHandling = retainHandling or 0  -- 0 = Send retained message when subscription is established. 1 = Same as 0, but only if the subscription did not prevoiusly exist. 2 = Do not send retained message
+
+  local encodedTopic = EncodeMQTTString(topic)
+
+  local subscriptionOptions = retainHandling & 3
+  subscriptionOptions = subscriptionOptions << 1
+  subscriptionOptions = subscriptionOptions | (retainAsPublished & 1)
+  subscriptionOptions = subscriptionOptions << 1
+  subscriptionOptions = subscriptionOptions | (noLocal & 1)
+  subscriptionOptions = subscriptionOptions << 2
+  subscriptionOptions = subscriptionOptions | (maxQOS & 3)
+
+  local subscriptionInformation = bitstring.pack("all:bin, 8:int", encodedTopic, subscriptionOptions)
+  return {encodedInfo = subscriptionInformation, topicName = topic}
+end
+
+function GetProtocolVersion()
+  if MQTT_VERSION == "5.0" then
+    return 5
+  else
+    error("Unsupported MQTT Version Selected!")
+  end
+end
+
+function BuildConnectPacket()
+-- Fixed header
+  local packetType = PacketTypes.CONNECT
+  local fixedFlags = 0
+  local remaininglength = 0 -- Convert this to a variable length integer
+
+  -- Variable Header
+  local protocolName = EncodeMQTTString("MQTT")
+  local protocolVersion = GetProtocolVersion()
+
+  local connectFlags = 0
+  if AUTHENTICATION_TYPE == "Username / Password" then
+    --connectFlags = connectFlags << 2
+    connectFlags = connectFlags | 3 -- Username and password flag
+  elseif AUTHENTICATION_TYPE == "Password Only" then
+    --connectFlags = connectFlags << 2
+    connectFlags = connectFlags | 1 -- Password flag
+  end
+
+  if Controls["WillTopic"].String ~= "" then
+    connectFlags = connectFlags << 1
+    connectFlags = connectFlags | BoolToInt(Controls["WillRetain"].Boolean)  -- Will Retain Flag
+    connectFlags = connectFlags << 2
+    connectFlags = connectFlags | Controls["WillQOS"].Value  -- Will QOS Flag
+    connectFlags = connectFlags << 1
+    connectFlags = connectFlags | 1  -- Will Flag
+  else
+    connectFlags = connectFlags << 4
+  end
+  
+  connectFlags = connectFlags << 1
+  connectFlags = connectFlags | BoolToInt(CLEAN_START)  -- Clean Start Flag
+
+  connectFlags = connectFlags << 1  -- Bit 0 is reserved and should be 0
+
+  local keepAlive = KEEP_ALIVE
+
+  local properties = EncodeVariableByteInteger(0)
+  -- TODO: Create Properties
+  
+  -- Payload
+  local clientId = EncodeMQTTString(CLIENT_IDENTIFIER)
+  local willProperties = ""
+  local willTopic = ""
+  local willPayload = ""
+  if Controls["WillTopic"].String ~= "" then
+    willProperties = EncodeVariableByteInteger(0)
+    -- TODO: Create Properties
+    willTopic = EncodeMQTTString(Controls["WillTopic"].String)
+    willPayload = EncodeMQTTString(Controls["WillPayload"].String)
+  end
+  local username = ""
+  local password = ""
+  if AUTHENTICATION_TYPE == "Username / Password" then
+    username = EncodeMQTTString(Controls["Username"].String)
+    password = EncodeMQTTString(_secret_storage["text.1"].String)
+  elseif AUTHENTICATION_TYPE == "Password Only" then
+    password = EncodeMQTTString(_secret_storage["text.1"].String)
+  end
+
+  -- Final Packet
+  local payload = bitstring.pack("all:bin, all:bin, all:bin, all:bin, all:bin, all:bin", clientId, willProperties, willTopic, willPayload, username, password)
+  local variableHeader = bitstring.pack("all:bin, 8:int, 8:int, 16:int, all:bin", protocolName, protocolVersion, connectFlags, keepAlive, properties)
+  remaininglength = EncodeVariableByteInteger(#payload + #variableHeader)
+  local fixedHeaderByte1 = (packetType << 4) | fixedFlags
+  local fixedHeader = bitstring.pack("8:int, all:bin", fixedHeaderByte1, remaininglength)
+
+  local packet = bitstring.pack("all:bin, all:bin, all:bin", fixedHeader, variableHeader, payload)
+  return packet
+end
+
+function ParseConnectAcknowledgePacket(packet)
+  local nextByte = 1
+
+  local connectAcknowledgeFlags = string.byte(packet, nextByte)
+  local sessionPresentFlag = connectAcknowledgeFlags & 1
+  nextByte = nextByte + 1
+
+  local connectReasonCode = string.byte(packet, nextByte)
+  if connectReasonCode == ReasonCodes.SUCCESS then
+    LogInfo("MQTT Connection was successful")
+    UpdateConnectionStatus(true)
+    if sessionPresentFlag == true then 
+      LogInfo("MQTT Session resumed from previous state")
+    else
+      LogInfo("MQTT Session started from clean state")
+    end
+  else
+    LogError("MQTT Connection failed with reason code " .. connectReasonCode)
+  end
+  nextByte = nextByte + 1
+
+  local propertyLength = DecodeVariableByteInteger(packet, nextByte)
+  -- TODO: Parse Properties
+end
+
+function BuildPublishPacket(retain, qos, topic, payload, dup)
+
+  dup = dup or false
+
+  -- Fixed header
+  local packetType = PacketTypes.PUBLISH
+  local fixedFlags = BoolToInt(dup)
+  fixedFlags = fixedFlags << 2
+  fixedFlags = fixedFlags | qos
+  fixedFlags = fixedFlags << 1
+  fixedFlags = fixedFlags | BoolToInt(retain)
+  local remaininglength = 0 -- Convert this to a variable length integer
+
+  -- Variable header
+  local topicName = EncodeMQTTString(topic)
+  local packetIdentifier = nil
+  if qos > 0 then
+    packetIdentifier = CreatePacketIdentifier()
+  end
+  local properties = EncodeVariableByteInteger(0)
+  -- TODO: Create Properties
+
+  -- Payload
+  -- Publish payload is not encoded as an MQTT string, just a regular string (with no null terminator)
+  --local payload = payload
+
+  -- Final Packet
+  local variableHeader = nil
+  if packetIdentifier == nil then
+    variableHeader = bitstring.pack("all:bin, all:bin", topicName, properties)
+  else
+    variableHeader = bitstring.pack("all:bin, 16:int, all:bin", topicName, packetIdentifier, properties)
+  end
+  remaininglength = EncodeVariableByteInteger(#payload + #variableHeader)
+  local fixedHeaderByte1 = (packetType << 4) | fixedFlags
+  local fixedHeader = bitstring.pack("8:int, all:bin", fixedHeaderByte1, remaininglength)
+
+  local packet = bitstring.pack("all:bin, all:bin, all:bin", fixedHeader, variableHeader, payload)
+  
+  if qos > 0 then
+    PendingPackets[tostring(packetIdentifier)] = {messageType = PacketTypes.PUBLISH, data = packet}
+  end
+  
+  return packet
+end
+
+function ParsePublishPacket(packet, fixedFlags)
+  -- Fixed Header Flags
+  local dupFlag = IntToBool((fixedFlags >> 3) & 1)
+  local qos = (fixedFlags >> 1) & 3
+  local retainFlag = IntToBool(fixedFlags & 1)
+
+  local nextByte = 1
+  -- Variable Header
+  local topicName = DecodeMQTTString(packet, nextByte)
+  nextByte = nextByte + 2 + #topicName
+
+  local packetIdentifier = nil
+  if qos > 0 then
+    packetIdentifier = DecodeFixedLengthInteger(packet, nextByte, 2)
+    nextByte = nextByte + 2
+  end
+
+  local propertyLength, size = DecodeVariableByteInteger(packet, nextByte)
+  -- TODO: Parse Properties
+  nextByte = nextByte + propertyLength + size
+
+  -- Payload
+  local payload = string.sub(packet, nextByte, -1)
+
+  outputNumber = 0
+  for i = 1, OUTPUT_COUNT do
+    if Controls["OutputTopic" .. i].String == topicName then
+      outputNumber = i
+      break
+    end
+  end
+  if outputNumber == 0 then 
+    LogError("Received message on a topic no output is assigned to")
+  else
+    Controls["OutputPayload" .. outputNumber].String = payload
+    Controls["OutputQOS" .. outputNumber].String = qos
+    Controls["OutputRetain" .. outputNumber].Boolean = retainFlag
+  end
+
+  if qos == 1 then
+    local pubAck = BuildPublishAcknowledgePacket(packetIdentifier, ReasonCodes.SUCCESS)
+    SendPacketToBroker(PacketTypes.PUBACK, pubAck)
+  elseif qos == 2 then
+    IncomingQos2PacketState[tostring(packetIdentifier)] = "published"
+    local pubRec = BuildPublishReceivePacket(packetIdentifier, ReasonCodes.SUCCESS)
+    if SendPacketToBroker(PacketTypes.PUBREC, pubRec) == true then
+      IncomingQos2PacketState[tostring(packetIdentifier)] = "received"
+    end
+  end
+end
+
+function BuildPublishAcknowledgePacket(packetIdentifier, reasonCode)
+  -- Fixed header
+  local packetType = PacketTypes.PUBACK
+  local fixedFlags = 0
+  local remaininglength = 0 -- Convert this to a variable length integer
+
+  -- Variable Header
+  --local packetIdentifier = packetIdentifier
+  --local reasonCode = reasonCode
+  local properties = EncodeVariableByteInteger(0)
+  -- TODO: Create Properties
+
+  -- Payload
+  -- No Payload
+
+  -- Final Packet
+  local variableHeader = bitstring.pack("16:int, 8:int, all:bin", packetIdentifier, reasonCode, properties)
+  remaininglength = EncodeVariableByteInteger(#variableHeader)
+  local fixedHeaderByte1 = (packetType << 4) | fixedFlags
+  local fixedHeader = bitstring.pack("8:int, all:bin", fixedHeaderByte1, remaininglength)
+
+  local packet = bitstring.pack("all:bin, all:bin", fixedHeader, variableHeader)
+  
+  return packet
+end
+
+function ParsePublishAcknowledgePacket(packet)
+  local nextByte = 1
+  -- Variable Header
+  local packetIdentifier = DecodeFixedLengthInteger(packet, nextByte, 2)
+  nextByte = nextByte + 2
+
+  local reasonCode = ReasonCodes.SUCCESS
+  if #packet > 2 then
+    local reasonCode = string.byte(packet, nextByte)
+    nextByte = nextByte + 1
+  end
+
+  if #packet > 3 then
+    local propertyLength = DecodeVariableByteInteger(packet, nextByte)
+  -- TODO: Parse Properties
+  end
+
+  -- Payload
+  -- No Payload
+
+  if PendingPackets[tostring(packetIdentifier)] ~= nil then 
+    PendingPackets[tostring(packetIdentifier)] = nil
+  else 
+    LogError("Unknown packet acknowledged")
+  end 
+  if reasonCode == ReasonCodes.SUCCESS then
+    LogDebug("Publish packet " .. packetIdentifier .. " acknowledged with success")
+  else 
+    LogError("Publish packet " .. packetIdentifier .. " acknowledged with reason code " .. reasonCode)
+  end
+end
+
+function BuildPublishReceivePacket(packetIdentifier, reasonCode)
+  -- Fixed header
+  local packetType = PacketTypes.PUBREC
+  local fixedFlags = 0
+  local remaininglength = 0 -- Convert this to a variable length integer
+
+  -- Variable Header
+  --local packetIdentifier = packetIdentifier
+  --local reasonCode = reasonCode
+  local properties = EncodeVariableByteInteger(0)
+  -- TODO: Create Properties
+
+  -- Payload
+  -- No Payload
+
+  -- Final Packet
+  local variableHeader = bitstring.pack("16:int, 8:int, all:bin", packetIdentifier, reasonCode, properties)
+  remaininglength = EncodeVariableByteInteger(#variableHeader)
+  local fixedHeaderByte1 = (packetType << 4) | fixedFlags
+  local fixedHeader = bitstring.pack("8:int, all:bin", fixedHeaderByte1, remaininglength)
+
+  local packet = bitstring.pack("all:bin, all:bin", fixedHeader, variableHeader)
+  
+  return packet
+end
+
+function ParsePublishReceivePacket(packet)
+  local nextByte = 1
+  -- Variable Header
+  local packetIdentifier = DecodeFixedLengthInteger(packet, nextByte, 2)
+  nextByte = nextByte + 2
+
+  local reasonCode = ReasonCodes.SUCCESS
+  if #packet > 2 then
+    local reasonCode = string.byte(packet, nextByte)
+    nextByte = nextByte + 1
+  end
+
+  if #packet > 3 then
+    local propertyLength = DecodeVariableByteInteger(packet, nextByte)
+  -- TODO: Parse Properties
+  end
+
+  -- Payload
+  -- No Payload
+  if PendingPackets[tostring(packetIdentifier)] ~= nil then 
+    PendingPackets[tostring(packetIdentifier)]["publishReceived"] = 1
+    if reasonCode == ReasonCodes.SUCCESS then
+      LogDebug("Publish packet " .. packetIdentifier .. " received with success")
+    else 
+      LogError("Publish packet " .. packetIdentifier .. " received with reason code " .. reasonCode)
+    end
+    local pubRel = BuildPublishReleasePacket(packetIdentifier, ReasonCodes.SUCCESS)
+    SendPacketToBroker(PacketTypes.PUBREL, pubRel)
+  else
+    LogError("Incoming Publish Receive with unknown Packet Identifier")
+    local pubRel = BuildPublishReleasePacket(packetIdentifier, ReasonCodes.PACKET_IDENTIFIER_NOT_FOUND)
+    SendPacketToBroker(PacketTypes.PUBREL, pubRel)
+  end 
+end
+
+function BuildPublishReleasePacket(packetIdentifier, reasonCode)
+  -- Fixed header
+  local packetType = PacketTypes.PUBREL
+  local fixedFlags = 2
+  local remaininglength = 0 -- Convert this to a variable length integer
+
+  -- Variable Header
+  --local packetIdentifier = packetIdentifier
+  --local reasonCode = reasonCode
+  local properties = EncodeVariableByteInteger(0)
+  -- TODO: Create Properties
+
+  -- Payload
+  -- No Payload
+
+  -- Final Packet
+  local variableHeader = bitstring.pack("16:int, 8:int, all:bin", packetIdentifier, reasonCode, properties)
+  remaininglength = EncodeVariableByteInteger(#variableHeader)
+  local fixedHeaderByte1 = (packetType << 4) | fixedFlags
+  local fixedHeader = bitstring.pack("8:int, all:bin", fixedHeaderByte1, remaininglength)
+
+  local packet = bitstring.pack("all:bin, all:bin", fixedHeader, variableHeader)
+  
+  return packet
+end
+
+function ParsePublishReleasePacket(packet)
+  local nextByte = 1
+  -- Variable Header
+  local packetIdentifier = DecodeFixedLengthInteger(packet, nextByte, 2)
+  nextByte = nextByte + 2
+
+  local reasonCode = ReasonCodes.SUCCESS
+  if #packet > 2 then
+    local reasonCode = string.byte(packet, nextByte)
+    nextByte = nextByte + 1
+  end
+
+  if #packet > 3 then
+    local propertyLength = DecodeVariableByteInteger(packet, nextByte)
+  -- TODO: Parse Properties
+  end
+
+  -- Payload
+  -- No Payload
+  if IncomingQos2PacketState[tostring(packetIdentifier)] ~= nil then 
+    IncomingQos2PacketState[tostring(packetIdentifier)] = "released"
+    if reasonCode == ReasonCodes.SUCCESS then
+      LogDebug("Publish packet " .. packetIdentifier .. " released with success")
+    else 
+      LogError("Publish packet " .. packetIdentifier .. " released with reason code " .. reasonCode)
+    end
+    local pubComp = BuildPublishCompletePacket(packetIdentifier, ReasonCodes.SUCCESS)
+    if SendPacketToBroker(PacketTypes.PUBCOMP, pubComp) == true then
+      IncomingQos2PacketState[tostring(packetIdentifier)] = nil
+    end
+  else
+    LogError("Incoming Publish Release with unknown Packet Identifier")
+    local pubRel = BuildPublishCompletePacket(packetIdentifier, ReasonCodes.PACKET_IDENTIFIER_NOT_FOUND)
+    SendPacketToBroker(PacketTypes.PUBCOMP, pubComp)
+  end 
+end
+
+function BuildPublishCompletePacket(packetIdentifier, reasonCode)
+  -- Fixed header
+  local packetType = PacketTypes.PUBCOMP
+  local fixedFlags = 0
+  local remaininglength = 0 -- Convert this to a variable length integer
+
+  -- Variable Header
+  --local packetIdentifier = packetIdentifier
+  --local reasonCode = reasonCode
+  local properties = EncodeVariableByteInteger(0)
+  -- TODO: Create Properties
+
+  -- Payload
+  -- No Payload
+
+  -- Final Packet
+  local variableHeader = bitstring.pack("16:int, 8:int, all:bin", packetIdentifier, reasonCode, properties)
+  remaininglength = EncodeVariableByteInteger(#variableHeader)
+  local fixedHeaderByte1 = (packetType << 4) | fixedFlags
+  local fixedHeader = bitstring.pack("8:int, all:bin", fixedHeaderByte1, remaininglength)
+
+  local packet = bitstring.pack("all:bin, all:bin", fixedHeader, variableHeader)
+  
+  return packet
+end
+
+function ParsePublishCompletePacket(packet)
+  local nextByte = 1
+  -- Variable Header
+  local packetIdentifier = DecodeFixedLengthInteger(packet, nextByte, 2)
+  nextByte = nextByte + 2
+
+  local reasonCode = ReasonCodes.SUCCESS
+  if #packet > 2 then
+    local reasonCode = string.byte(packet, nextByte)
+    nextByte = nextByte + 1
+  end
+
+  if #packet > 3 then
+    local propertyLength = DecodeVariableByteInteger(packet, nextByte)
+  -- TODO: Parse Properties
+  end
+
+  -- Payload
+  -- No Payload
+
+  if PendingPackets[tostring(packetIdentifier)] ~= nil then 
+    PendingPackets[packetIdentifier] = nil
+    if reasonCode == ReasonCodes.SUCCESS then
+      LogDebug("Publish packet " .. packetIdentifier .. " completed with success")
+    else 
+      LogError("Publish packet " .. packetIdentifier .. " completed with reason code " .. reasonCode)
+    end
+  else
+    LogError("Incoming Publish Complete with unknown Packet Identifier")
+  end 
+end
+
+function BuildSubscribePacket(subscriptionInfoList)
+  -- Fixed header
+  local packetType = PacketTypes.SUBSCRIBE
+  local fixedFlags = 2
+  local remaininglength = 0 -- Convert this to a variable length integer
+
+  -- Variable Header
+  local packetIdentifier = CreatePacketIdentifier()
+  local properties = EncodeVariableByteInteger(0)
+  -- TODO: Create Properties
+  
+  -- Payload
+  payload = ""
+  for _, subscription in pairs(subscriptionInfoList) do
+    payload = payload .. subscription.encodedInfo
+  end
+
+  -- Final Packet
+  local variableHeader = bitstring.pack("16:int, all:bin", packetIdentifier, properties)
+  remaininglength = EncodeVariableByteInteger(#variableHeader + #payload)
+  local fixedHeaderByte1 = (packetType << 4) | fixedFlags
+  local fixedHeader = bitstring.pack("8:int, all:bin", fixedHeaderByte1, remaininglength)
+
+  local packet = bitstring.pack("all:bin, all:bin, all:bin", fixedHeader, variableHeader, payload)
+  
+  PendingPackets[tostring(packetIdentifier)] = {messageType = PacketTypes.SUBSCRIBE, data = packet, topics = subscriptionInfoList}
+
+  return packet
+end
+
+function ParseSubscribeAcknoledgePacket(packet)
+  local nextByte = 1
+  -- Variable Header
+  local packetIdentifier = DecodeFixedLengthInteger(packet, nextByte, 2)
+  nextByte = nextByte + 2
+
+  local propertyLength, size = DecodeVariableByteInteger(packet, nextByte)
+  nextByte = nextByte + propertyLength + size
+  -- TODO: Parse Properties
+
+  -- Payload
+  if PendingPackets[tostring(packetIdentifier)] ~= nil then
+    --local reasonCodes = {}
+    for i, value in ipairs(PendingPackets[tostring(packetIdentifier)].topics) do
+      local rc = string.byte(packet, nextByte + i - 1)
+      if rc == ReasonCodes.GRANTED_QOS_0 then
+        LogDebug("Subscribe Acknowledge " .. packetIdentifier .. " granted QOS 0 on topic " .. value.topicName)
+      elseif rc == ReasonCodes.GRANTED_QOS_1 then
+        LogDebug("Subscribe Acknowledge " .. packetIdentifier .. " granted QOS 1 on topic " .. value.topicName)
+      elseif rc == ReasonCodes.GRANTED_QOS_2 then
+        LogDebug("Subscribe Acknowledge " .. packetIdentifier .. " granted QOS 2 on topic " .. value.topicName)
+      else 
+        LogError("Subscribe Acknowledge " .. packetIdentifier .. " completed with reason code " .. rc .. " on topic " .. value.topicName)
+      end
+    end
+    PendingPackets[packetIdentifier] = nil
+  else
+    LogError("Incoming Subscribe Acknowledge with unknown Packet Identifier")
+  end
+end
+
+function BuildUnsubscribePacket(topicList)
+  -- Fixed header
+  local packetType = PacketTypes.UNSUBSCRIBE
+  local fixedFlags = 2
+  local remaininglength = 0 -- Convert this to a variable length integer
+
+  -- Variable Header
+  local packetIdentifier = CreatePacketIdentifier()
+  local properties = EncodeVariableByteInteger(0)
+  -- TODO: Create Properties
+  
+  -- Payload
+  payload = ""
+  for _, topic in pairs(topicList) do
+    payload = payload .. EncodeMQTTString(topic)
+  end
+
+  -- Final Packet
+  local variableHeader = bitstring.pack("16:int, all:bin", packetIdentifier, properties)
+  remaininglength = EncodeVariableByteInteger(#variableHeader + #payload)
+  local fixedHeaderByte1 = (packetType << 4) | fixedFlags
+  local fixedHeader = bitstring.pack("8:int, all:bin", fixedHeaderByte1, remaininglength)
+
+  local packet = bitstring.pack("all:bin, all:bin, all:bin", fixedHeader, variableHeader, payload)
+  
+  PendingPackets[tostring(packetIdentifier)] = {messageType = PacketTypes.SUBSCRIBE, data = packet, topics = topicList}
+
+  return packet
+end
+
+function ParseUnsubscribeAcknoledgePacket(packet)
+  local nextByte = 1
+  -- Variable Header
+  local packetIdentifier = DecodeFixedLengthInteger(packet, nextByte, 2)
+  nextByte = nextByte + 2
+
+  local propertyLength, size = DecodeVariableByteInteger(packet, nextByte)
+  nextByte = nextByte + propertyLength + size
+  -- TODO: Parse Properties
+
+  -- Payload
+  if PendingPackets[tostring(packetIdentifier)] ~= nil then
+    --local reasonCodes = {}
+    for i, value in ipairs(PendingPackets[tostring(packetIdentifier)].topics) do
+      local rc = string.byte(packet, nextByte + i - 1)
+      if rc == ReasonCodes.SUCCESS then
+        LogDebug("Unsubscribe Acknowledge " .. packetIdentifier .. " success on topic " .. value)
+      else 
+        LogError("Unsubscribe Acknowledge " .. packetIdentifier .. " completed with reason code " .. rc .. " on topic " .. value.topicName)
+      end
+    end
+    PendingPackets[packetIdentifier] = nil
+  else
+    LogError("Incoming Unsubscribe Acknowledge with unknown Packet Identifier")
+  end
+end
+
+function BuildPingRequestPacket()
+  -- Fixed header
+  local packetType = PacketTypes.PINGREQ
+  local fixedFlags = 0
+  local remaininglength = 0 -- Convert this to a variable length integer
+
+  -- Variable Header
+  -- No Variable Header
+  
+  -- Payload
+  -- No Payload
+
+  -- Final Packet
+  remaininglength = EncodeVariableByteInteger(remaininglength)
+  local fixedHeaderByte1 = (packetType << 4) | fixedFlags
+  local fixedHeader = bitstring.pack("8:int, all:bin", fixedHeaderByte1, remaininglength)
+
+  local packet = bitstring.pack("all:bin", fixedHeader)
+  
+  return packet
+end
+
+function ParsePingResponsePacket(packet)
+  -- Variable Header
+  -- No Variable Header
+
+  -- Payload
+  -- No Payload
+  
+  LogDebug("Ping Response Received")
+end
+
+function BuildDisconnectPacket(reasonCode)
+  -- Fixed header
+  local packetType = PacketTypes.DISCONNECT
+  local fixedFlags = 0
+  local remaininglength = 0 -- Convert this to a variable length integer
+
+  -- Variable Header
+  --local reasonCode = reasonCode
+  local properties = EncodeVariableByteInteger(0)
+  -- TODO: Create Properties
+  
+  -- Payload
+  -- No Payload
+
+  -- Final Packet
+  local variableHeader = bitstring.pack("8:int, all:bin", reasonCode, properties)
+  remaininglength = EncodeVariableByteInteger(#variableHeader)
+  local fixedHeaderByte1 = (packetType << 4) | fixedFlags
+  local fixedHeader = bitstring.pack("8:int, all:bin", fixedHeaderByte1, remaininglength)
+
+  local packet = bitstring.pack("all:bin, all:bin", fixedHeader, variableHeader)
+
+  return packet
+end
+
+function ParseDisconnectPacket(packet)
+  local nextByte = 1
+  -- Variable Header
+  local reasonCode = ReasonCodes.SUCCESS
+  if #packet > 0 then
+    reasonCode = DecodeFixedLengthInteger(packet, nextByte, 1)
+    nextByte = nextByte + 1
+  end
+
+  if #packet > 1 then
+    local propertyLength, size = DecodeVariableByteInteger(packet, nextByte)
+    -- TODO: Parse Properties
+  end
+
+  -- Payload
+  -- No Payload
+
+  if reasonCode == ReasonCodes.NORMAL_DISCONNECT then
+    LogInfo("Normal Disconnect received from server")
+  else 
+    LogError("Disconnect received with reason code " .. reasonCode)
+  end
+
+  UpdateConnectionStatus(false)
+end
+
+function BuildAuthenticationPacket()
+  LogError("Cannot build auth packet. Auth is not implemented")
+  return nil
+end
+
+function ParseAuthenticationPacket(packet)
+  LogError("Received auth packet, but auth is not implemented")
+end
+
+function ReadIncomingPacket(socket)
+  KeepAliveTimer:Stop()
+  KeepAliveTimer:Start(KEEP_ALIVE * 1.5)  -- The 1.5 multiplier comes from the specification
+  local typeAndFlags = string.byte(socket:Read(1), 1)
+  local messageType = typeAndFlags >> 4
+  local messageFlags = typeAndFlags & 0x0F
+  
+  local length = 0
+  local byte = 128
+  local byteCount = 0
+  repeat 
+    byte = string.byte(socket:Read(1))
+    length = length + ((byte & 127) * 128 ^ byteCount)
+    byteCount = byteCount + 1
+    if byteCount > 4 then
+      LogCritical("Malformed Variable Byte Integer")
+    end
+  until byte & 128 == 0
+  local data = socket:Read(length)
+
+  if messageType == PacketTypes.CONNACK then 
+    ParseConnectAcknowledgePacket(data)
+  elseif messageType == PacketTypes.PUBLISH then
+    ParsePublishPacket(data, messageFlags)
+  elseif messageType == PacketTypes.PUBACK then
+    ParsePublishAcknowledgePacket(data)
+  elseif messageType == PacketTypes.PUBREC then
+    ParsePublishReceivePacket(data)
+  elseif messageType == PacketTypes.PUBREL then
+    ParsePublishReleasePacket(data)
+  elseif messageType == PacketTypes.PUBCOMP then
+    ParsePublishCompletePacket(data)
+  elseif messageType == PacketTypes.SUBACK then
+    ParseSubscribeAcknoledgePacket(data)
+  elseif messageType == PacketTypes.UNSUBACK then
+    ParseUnsubscribeAcknoledgePacket(data)
+  elseif messageType == PacketTypes.PINGRESP then
+    ParsePingResponsePacket(data)
+  elseif messageType == PacketTypes.DISCONNECT then
+    ParseDisconnectPacket(data)
+  elseif messageType == PacketTypes.AUTH then
+    ParseAuthenticationPacket(data)
+  else
+    LogError("Received Unexpected Packet Type: " .. messageType)
+  end
+end
+
+function BrokerSocketEventHandler(socket, evt, err)
+  if evt == TcpSocket.Events.Connected then
+    LogDebug("TCP Socket Connected")
+    local connectPacket = BuildConnectPacket()
+    SendPacketToBroker(PacketTypes.CONNECT, connectPacket)
+  elseif evt == TcpSocket.Events.Reconnect then
+    LogDebug("TCP Socket Reconnecting")
+    UpdateConnectionStatus(false)
+  elseif evt == TcpSocket.Events.Data then
+    ReadIncomingPacket(socket)
+  elseif evt == TcpSocket.Events.Closed then
+    LogDebug( "TCP Socket Closed by Remote" )
+    UpdateConnectionStatus(false)
+  elseif evt == TcpSocket.Events.Error then
+    LogDebug( "TCP Socket Closed Due to Error", err )
+    UpdateConnectionStatus(false)
+  elseif evt == TcpSocket.Events.Timeout then
+    LogDebug( "TCP Socket Closed Due to Timeout" )
+    UpdateConnectionStatus(false)
+  else
+    LogError( "unknown socket event", evt ) --should never happen
+  end
+end
+
+function SendPacketToBroker(packetType, packetData)
+  if packetType == PacketTypes.CONNECT then
+    BrokerSocket:Write(packetData)
+    return true
+  else 
+    if BrokerIsConnected == true then
+      BrokerSocket:Write(packetData)
+      return true
+    else 
+      LogDebug("Unable to send packet. Broker is not connected")
+      return false
+    end
+    if packetType == packetTypes.DISCONNECT then
+      UpdateConnectionStatus(false)
+    end
+  end
+end
+
+function UpdateConnectionStatus(isConnected)
+  -- Note: isConencted is the local parameter, BrokerIsConnected is the global value
+  -- If there is no state change, leave
+  if isConnected == BrokerIsConnected then return end
+
+  BrokerIsConnected = isConnected
+  
+  if isConnected == true then
+    Controls["Status"].Value = STATUS_VALUES["OK"]
+    if CLEAN_START == true then 
+      PendingPackets = {}
+      IncomingQos2PacketState = {}
+      LastPacketIdentifier = 1
+    end
+    PingTimer:Start(KEEP_ALIVE)
+    KeepAliveTimer:Start(KEEP_ALIVE * 1.5)  -- The 1.5 multiplier comes from the specification
+    CreateSubscriptions()
+  else
+    Controls["Status"].Value = STATUS_VALUES["FAULT"]
+    Controls["Status"].String = "Broker Not Connected"
+    PingTimer:Stop()
+    KeepAliveTimer:Stop()
+    Timer.CallAfter(AttemptReconnection, 5)  -- Attempt Reconnect after 5 seconds
+  end
+end
+
+function PingTimerEventHandler(timer)
+  local pingReq = BuildPingRequestPacket()
+  SendPacketToBroker(PacketTypes.PINGREQ, pingReq)
+end
+
+function KeepAliveTimerEventHandler(timer)
+  if BrokerIsConnected == true then  -- Should always be the case
+    BrokerSocket:Disconnect()
+    Timer.CallAfter(AttemptReconnection, 5)  -- Attempt Reconnect after 5 seconds
+  end
+end
+
+function AttemptReconnection()
+  if BrokerIsConnected == true then return end
+  BrokerSocket:Connect(BROKER_ADDRESS, BROKER_PORT)
+  Timer.CallAfter(AttemptReconnection, 5)  -- Check again after 5 seconds
+end
+
+function AuthenticationUpdateEventHandler(ctl)
+  if AUTHENTICATION_TYPE == "Username / Password" or AUTHENTICATION_TYPE == "Password Only" then
+    if Controls["Password"].String ~= "********" then
+      _secret_storage["text.1"].String = Controls["Password"].String
+      Controls["Password"].String = "********"
+    elseif Controls["Password"].String == "" then
+      _secret_storage["text.1"].String = ""
+      Controls["Password"].String = ""
+    end
+  end
+  if BrokerIsConnected then
+    local disconnect = BuildDisconnectPacket(ReasonCodes.NORMAL_DISCONNECT)
+    SendPacketToBroker(PacketTypes.DISCONNECT, disconnect)
+  end
+  -- The code will automatically attempt a reconnect after a few seconds
+end
+
+function WillUpdatedEventHandler(ctl)
+  if BrokerIsConnected then
+    local disconnect = BuildDisconnectPacket(ReasonCodes.NORMAL_DISCONNECT)
+    SendPacketToBroker(PacketTypes.DISCONNECT, disconnect)
+  end
+  -- The code will automatically attempt a reconnect after a few seconds
+end
+
+function InputPayloadEventHandler(ctl)
+  inputNumber = 0
+  for i = 1, INPUT_COUNT do
+    if Controls["InputPayload" .. i] == ctl then
+      inputNumber = i
+      break
+    end
+  end
+  if inputNumber == 0 then 
+    LogError("Input not found to handle payload change")
+    return
+  end
+
+  local payload = Controls["InputPayload" .. inputNumber].String
+  local topic = Controls["InputTopic" .. inputNumber].String
+  local qos = Controls["InputQOS" .. inputNumber].Value
+  local retain = Controls["InputRetain" .. inputNumber].Boolean
+
+  if topic ~= "" then
+    LogDebug("Publishing packet on " .. topic)
+    local publish = BuildPublishPacket(retain, qos, topic, payload)
+    SendPacketToBroker(PacketTypes.PUBLISH, publish)
+  else
+    LogError("Attempting to publish MQTT packet with no topic on input " .. inputNumber)
+  end
+end 
+
+function OutputTopicEventHandler(ctl)
+  outputNumber = 0
+  for i = 1, OUTPUT_COUNT do
+    if Controls["OutputTopic" .. i] == ctl then
+      outputNumber = i
+      break
+    end
+  end
+  if outputNumber == 0 then 
+    LogError("Output not found to handle topic change")
+    return
+  end
+
+  --If a subscription exists for this outut, clear it. If no other output cares about this topic, unsubscribe from it
+  if SubscribedTopics[tostring(outputNumber)] ~= nil then
+    local foundAnotherSubscription = false
+    for outputNum, topic in pairs(SubscribedTopics) do
+      if outputNum ~= outputNumber and SubscribedTopics[tostring(outputNumber)] == topic then
+        foundAnotherSubscription = true
+        break
+      end
+    end
+    if foundAnotherSubscription == false then
+      local unsubscribe = BuildUnsubscribePacket({SubscribedTopics[tostring(outputNumber)]})
+      SendPacketToBroker(unsubscribe)
+    end
+    SubscribedTopics[tostring(outputNumber)] = nil
+  end
+
+  --If we have a topic, add it to our internal subscription list. If no other output is listening on this topic, subscribe to it
+  if ctl.String ~= "" then
+    local foundAnotherSubscription = false
+    for outputNum, topic in pairs(SubscribedTopics) do
+      if ctl.String == topic then
+        foundAnotherSubscription = true
+        break
+      end
+    end
+    if foundAnotherSubscription == false then
+      local subscriptionInfo = EncodeSubscriptionInformation(ctl.String)
+      local subscribe = BuildSubscribePacket({subscriptionInfo})
+      SendPacketToBroker(PacketTypes.SUBSCRIBE, subscribe)
+    end
+    SubscribedTopics[tostring(outputNumber)] = ctl.String
+  end
+end
+
+function CreateSubscriptions()
+--We will store the topics as keys in a table to guarantee we have a unique set of topics
+  local uniqueSubscriptionList = {}
+  local subscriptionCount = 0
+  local subscriptions = {}
+  for i = 1, OUTPUT_COUNT do
+    if Controls["OutputTopic" .. i].String ~= "" then
+      uniqueSubscriptionList[Controls["OutputTopic" .. i].String] = 0
+      subscriptionCount = subscriptionCount + 1
+    end
+  end
+  if subscriptionCount > 0 then
+    for topic, _ in pairs(uniqueSubscriptionList) do 
+      table.insert(subscriptions, EncodeSubscriptionInformation(topic))
+    end
+    local subscribe = BuildSubscribePacket(subscriptions)
+    SendPacketToBroker(PacketTypes.SUBSCRIBE, subscribe)
+  end
+end
+
+------------------------------- Runtime Logic ---------------------------------
+
+if Controls then
+
+require "bitstring"
+------------------------------------ Objects ----------------------------------
+BROKER_ADDRESS = Properties["Broker Address"].Value
+BROKER_PORT = Properties["Port"].Value
+AUTHENTICATION_TYPE = Properties["Authentication Type"].Value
+MQTT_VERSION = Properties["MQTT Version"].Value
+TRANSPORT_TYPE = Properties["Transport Type"].Value
+CLEAN_START = Properties["Clean Start"].Value
+KEEP_ALIVE = Properties["Keep Alive Interval"].Value
+CLIENT_IDENTIFIER = Properties["Client Identifier"].Value
+INPUT_COUNT = Properties["Inputs"].Value
+OUTPUT_COUNT = Properties["Outputs"].Value
+
+BrokerIsConnected = false
+if TRANSPORT_TYPE == "TCP (Insecure)" then
+  BrokerSocket = TcpSocket.New()
+elseif TRANSPORT_TYPE == "TCP w/ TLS" then
+  -- Note: Per the documentation. Certificate validation is not performed
+  BrokerSocket = TcpSocket.NewTls()
+end
+PingTimer = Timer.New() -- Outgoing Ping
+KeepAliveTimer = Timer.New() -- Incoming Check
+LastPacketIdentifier = 1
+PendingPackets = {}
+IncomingQos2PacketState = {}
+SubscribedTopics = {}
+
+-------------------------------- Initialization -------------------------------
+function Initialize()
+	-- Do initialization stuff here
+	Controls["BrokerAddress"].String = BROKER_ADDRESS
+	Controls["Port"].String = BROKER_PORT
+	Controls["TransportType"].String = TRANSPORT_TYPE
+	Controls["ClientIdentifier"].String = CLIENT_IDENTIFIER
+	if CLEAN_START then
+		Controls["CleanStart"].String = "true"
+	else
+		Controls["CleanStart"].String = "false"
+	end
+	Controls["KeepAlive"].String = KEEP_ALIVE
+	Controls["Version"].String = MQTT_VERSION
+	Controls["AuthenticationType"].String = AUTHENTICATION_TYPE
+
+	Controls["Status"].Value = STATUS_VALUES["FAULT"]
+	Controls["Status"].String = "Broker Not Connected"
+
+	BrokerSocket.EventHandler = BrokerSocketEventHandler
+	PingTimer.EventHandler = PingTimerEventHandler
+	KeepAliveTimer.EventHandler = KeepAliveTimerEventHandler
+	if AUTHENTICATION_TYPE == "Username / Password" then
+	Controls["Username"].EventHandler = AuthenticationUpdateEventHandler
+	Controls["Password"].EventHandler = AuthenticationUpdateEventHandler
+	elseif AUTHENTICATION_TYPE == "Password Only" then
+	Controls["Password"].EventHandler = AuthenticationUpdateEventHandler
+	end
+	Controls["WillTopic"].EventHandler = WillUpdatedEventHandler
+	Controls["WillPayload"].EventHandler = WillUpdatedEventHandler
+	Controls["WillQOS"].EventHandler = WillUpdatedEventHandler
+	Controls["WillRetain"].EventHandler = WillUpdatedEventHandler
+
+	for i = 1, INPUT_COUNT do
+	Controls["InputPayload" .. i].EventHandler = InputPayloadEventHandler
+	end
+
+	for i = 1, OUTPUT_COUNT do
+	Controls["OutputTopic" .. i].EventHandler = OutputTopicEventHandler
+	end
+
+
+	BrokerSocket.ReconnectTimeout = 0  -- Disable Auto-reconnect so we can manage it manually
+
+	BrokerSocket:Connect(BROKER_ADDRESS, BROKER_PORT)
+	Timer.CallAfter(AttemptReconnection, 5)  -- Re-attempt Connect after 5 seconds
+end
+
+local canInitialize = true
+
+-- Check Properties and other stuff for illegal values
+
+if canInitialize then
+	print("Initializing")
+	Initialize()
+	print("Initialization Complete")
+else
+	print("Not initializing")
+end
+
+-- Nothing should be done after this point
+
+end	--if Controls 
